@@ -83,8 +83,6 @@ jobs:
         id: capture
         run: |
           node export-frames.mjs
-        env:
-          TOTAL_FRAMES: ${{ fromJson(format('{{0 * 1}}', github.event.inputs.fps * github.event.inputs.duration)) }}
 
       - name: Upload MP4 artifact
         uses: actions/upload-artifact@v4
