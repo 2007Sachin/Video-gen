@@ -35,6 +35,8 @@ async function main() {
 
   // Launch browser
   console.log('🚀 Launching headless Chrome...');
+  const chromePath = process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable';
+  console.log(`   Using Chrome: ${chromePath}`);
   const browser = await puppeteer.launch({
     headless: 'new',
     args: [
@@ -46,6 +48,7 @@ async function main() {
       '--disable-features=VizDisplayCompositor',
       '--force-color-profile=srgb',
     ],
+    executablePath: chromePath,
     defaultViewport: { width: WIDTH, height: HEIGHT, deviceScaleFactor: DEVICE_SCALE_FACTOR }
   });
 
