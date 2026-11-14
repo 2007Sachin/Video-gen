@@ -37,7 +37,7 @@ async function main() {
   console.log('🚀 Launching headless Chrome...');
   const chromePath = process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable';
   console.log(`   Using Chrome: ${chromePath}`);
-  
+
   // Test Chrome exists
   const { execSync } = require('child_process');
   try {
@@ -47,7 +47,7 @@ async function main() {
     console.error('   ❌ Chrome binary NOT found at:', chromePath);
     process.exit(1);
   }
-  
+
   const browser = await puppeteer.launch({
     headless: 'new',
     args: [
@@ -55,52 +55,46 @@ async function main() {
       '--disable-gpu',
       '--no-sandbox',
       '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',  // Critical for CI/Docker
+      '--disable-dev-shm-usage',
       '--disable-web-security',
       '--disable-features=VizDisplayCompositor',
       '--force-color-profile=srgb',
       '--no-first-run',
       '--no-zygote',
-      '--single-process',  // Helps in constrained environments
+      '--single-process',
     ],
     executablePath: chromePath,
     defaultViewport: { width: WIDTH, height: HEIGHT, deviceScaleFactor: DEVICE_SCALE_FACTOR },
-    timeout: 60000,  // 60s launch timeout
+    timeout: 60000,
   });
 
   const page = await browser.newPage();
   await page.setViewport({ width: WIDTH, height: HEIGHT, deviceScaleFactor: DEVICE_SCALE_FACTOR });
-  page.setDefaultTimeout(120000);  // 2 min default timeout
+  page.setDefaultTimeout(120000);
 
-  // Enable console logs from page
   page.on('console', msg => console.log('📄', msg.text()));
   page.on('pageerror', err => console.error('❌ Page error:', err.message));
   page.on('requestfailed', req => console.error('❌ Request failed:', req.url(), req.failure().errorText));
 
-  // Load composition
   const fileUrl = `file://${COMPOSITION_PATH}`;
   console.log(`📥 Loading: ${fileUrl}`);
   await page.goto(fileUrl, { waitUntil: 'domcontentloaded', timeout: 120000 });
 
-  // Wait for fonts and initial render
   console.log('⏳ Waiting for fonts...');
   await page.evaluateHandle('document.fonts.ready');
   console.log('✅ Fonts ready');
   await new Promise(r => setTimeout(r, 2000));
 
-  // Get composition controller
   console.log('🔍 Looking for composition controller...');
   const comp = await page.evaluateHandle(() => window.__FDE_COMPOSITION__);
   if (!comp) throw new Error('Composition controller not found on page');
   console.log('✅ Composition controller found');
-  
-  // Test composition
+
   const duration = await comp.evaluate(c => c.duration);
   console.log(`   Duration: ${duration}s`);
   const totalFrames = await comp.evaluate(c => c.totalFrames);
   console.log(`   Total frames: ${totalFrames}`);
 
-  // Pause at start
   await comp.evaluate(c => c.pause());
   await comp.evaluate(c => c.seek(0));
   await new Promise(r => setTimeout(r, 1000));
@@ -111,15 +105,11 @@ async function main() {
 
   for (let frame = 0; frame < TOTAL_FRAMES; frame++) {
     const frameTime = frame / FPS;
-    
-    try {
-      // Seek to exact frame time
-      await comp.evaluate((c, t) => c.seek(t), frameTime);
-      
-      // Small wait for GSAP to settle
-      await new Promise(r => setTimeout(r, 16)); // ~1 frame at 60fps internal
 
-      // Capture frame
+    try {
+      await comp.evaluate((c, t) => c.seek(t), frameTime);
+      await new Promise(r => setTimeout(r, 16));
+
       const framePath = path.join(FRAMES_DIR, `frame_${String(frame).padStart(6, '0')}.png`);
       await page.screenshot({ path: framePath, type: 'png', timeout: 30000 });
     } catch (frameErr) {
@@ -128,7 +118,6 @@ async function main() {
       process.exit(1);
     }
 
-    // Progress log every 5 seconds
     const now = Date.now();
     if (now - lastLogTime > 5000) {
       const elapsed = (now - startTime) / 1000;
@@ -142,14 +131,11 @@ async function main() {
   await browser.close();
   console.log('\n✅ Frame capture complete.');
 
-  // ============================================
-  // FFMPEG STITCH
-  // ============================================
   console.log('🔧 Stitching frames with ffmpeg...');
-  
+
   const preset = QUALITY === 'draft' ? 'fast' : 'slow';
   const crf = QUALITY === 'draft' ? '23' : '18';
-  
+
   const ffmpegArgs = [
     '-y',
     '-framerate', String(FPS),
@@ -159,14 +145,11 @@ async function main() {
     '-crf', crf,
     '-pix_fmt', 'yuv420p',
     '-movflags', '+faststart',
-    FINAL_MP4
+    FINAL_MP4,
   ];
 
   await runCommand('ffmpeg', ffmpegArgs);
   console.log(`\n🎉 DONE! Output: ${FINAL_MP4}`);
-
-  // Cleanup frames (optional)
-  // fs.rmSync(FRAMES_DIR, { recursive: true, force: true });
 }
 
 function runCommand(cmd, args) {
