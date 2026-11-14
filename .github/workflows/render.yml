@@ -72,22 +72,38 @@ jobs:
           PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: 'true'
           PUPPETEER_EXECUTABLE_PATH: '/usr/bin/google-chrome-stable'
 
+      - name: Copy local GSAP
+        run: cp node_modules/gsap/dist/gsap.min.js ./gsap.min.js
+
       - name: Verify composition loads
         run: |
           node -e "
             const puppeteer = require('puppeteer');
+
             (async () => {
-              const browser = await puppeteer.launch({ 
-                headless: 'new', 
-                args: ['--no-sandbox', '--disable-setuid-sandbox'],
+              const browser = await puppeteer.launch({
+                headless: 'new',
+                args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
                 executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable'
               });
+
               const page = await browser.newPage();
-              await page.goto('file://${{ github.workspace }}/index.html', { waitUntil: 'networkidle0' });
-              await page.evaluateHandle('document.fonts.ready');
+
+              page.on('pageerror', err => console.error('PAGEERROR:', err.message));
+              page.on('console', msg => console.log('BROWSER:', msg.type(), msg.text()));
+
+              await page.goto('file://${{ github.workspace }}/index.html', { waitUntil: 'load', timeout: 120000 });
+
+              await page.waitForFunction(() => !!window.__FDE_COMPOSITION__?.ready, { timeout: 30000 });
+
               const comp = await page.evaluate(() => window.__FDE_COMPOSITION__);
-              if (!comp) throw new Error('Composition controller not found');
-              console.log('✅ Composition verified:', comp.duration, 'seconds');
+              if (!comp || !comp.ready) throw new Error('Composition not ready: ' + (comp?.error || 'unknown'));
+              console.log('✅ Composition verified:', comp.duration, 'seconds, ready:', comp.ready);
+
+              // Also check for page errors
+              const errors = await page.evaluate(() => window.__FDE_ERRORS__);
+              if (errors.length) console.error('⚠️ Page errors:', errors);
+
               await browser.close();
             })();
           "
