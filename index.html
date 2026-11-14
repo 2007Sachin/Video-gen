@@ -52,11 +52,12 @@
     .progress-bar { position: absolute; bottom: 0; left: 0; height: 3px; background: linear-gradient(90deg, var(--primary), var(--accent)); transform-origin: left; transform: scaleX(0); }
     .debug-bar { position: fixed; bottom: 20px; right: 20px; z-index: 1000; background: rgba(0,0,0,0.8); padding: 12px 16px; border-radius: 8px; font-family: var(--font-mono); font-size: 12px; color: var(--primary); display: none; }
     .debug-bar.visible { display: block; }
+    .gsap-failed .module-card { opacity: 1; transform: none; }
+    .gsap-failed .badge, .gsap-failed .headline, .gsap-failed .subline, .gsap-failed .signature { opacity: 1; transform: none; }
   </style>
 </head>
 <body>
   <div id="stage">
-    <!-- Layer 1: Animated Background Mesh (never sits still) -->
     <div class="layer bg-mesh" id="bgMesh">
       <svg viewBox="0 0 1920 1080" preserveAspectRatio="none">
         <defs>
@@ -76,30 +77,20 @@
         <circle id="orb1" cx="960" cy="540" r="400" fill="url(#grad1)" filter="blur(80px)"/>
         <circle id="orb2" cx="1400" cy="200" r="300" fill="url(#grad2)" filter="blur(60px)"/>
         <circle id="orb3" cx="400" cy="800" r="250" fill="url(#grad3)" filter="blur(50px)"/>
-        <!-- Grid lines -->
-        <g id="gridLines" stroke="rgba(255,255,255,0.03)" stroke-width="1">
-          <!-- Vertical lines -->
-        </g>
+        <g id="gridLines" stroke="rgba(255,255,255,0.03)" stroke-width="1"></g>
       </svg>
     </div>
 
-    <!-- Layer 2: Content (persistent subject: FDE brand) -->
     <div class="layer content" id="content">
       <div class="badge" id="badge">FDE COURSE • 10 MODULES • ZERO CODE REQUIRED</div>
-      
       <h1 class="headline" id="headline">
         Most AI demos work in a clean lab.<br>
         <span class="accent-text">Your company is not a clean lab.</span>
       </h1>
-      
       <p class="subline" id="subline">
         Forward Deployed Engineering is the discipline of making AI work in <strong>your</strong> environment — legacy code, messy data, restricted networks, skeptical stakeholders.
       </p>
-
-      <div class="module-grid" id="moduleGrid">
-        <!-- Modules injected by JS -->
-      </div>
-
+      <div class="module-grid" id="moduleGrid"></div>
       <div class="cta">
         <p class="cta-text">By the end of this course, you'll have built:</p>
         <p class="signature" id="signature">Your First FDE Engagement Plan</p>
@@ -107,422 +98,344 @@
       </div>
     </div>
 
-    <!-- Layer 3: Graphics / UI elements -->
     <div class="layer" id="graphicsLayer"></div>
-
-    <!-- Layer 4: Color Grade (subtle overlay) -->
     <div class="layer" id="gradeLayer" style="background: radial-gradient(ellipse at center, transparent 0%, rgba(10,10,15,0.3) 100%); pointer-events: none;"></div>
-
-    <!-- Layer 5: Film Grain + Vignette -->
     <div class="layer" id="grainLayer" style="opacity: 0.03; background-image: url('data:image/svg+xml,<svg viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg"><filter id="noise"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="4" stitchTiles="stitch"/></filter><rect width="100%" height="100%" filter="url(%23noise)"/></svg>'); pointer-events: none;"></div>
 
-    <!-- Lower third / chapter indicator -->
     <div class="lower-third" id="lowerThird">
       <div class="lower-third-line" id="lowerThirdLine"></div>
       <span class="chapter-indicator" id="chapterIndicator">CHAPTER 1 OF 5 • THE PROBLEM</span>
     </div>
 
-    <!-- Progress bar -->
     <div class="progress-bar" id="progressBar"></div>
-
-    <!-- Debug bar (press D to toggle) -->
     <div class="debug-bar" id="debugBar">Time: <span id="debugTime">0.00</span>s | Beat: <span id="debugBeat">0</span></div>
   </div>
 
-  <!-- GSAP (local) -->
   <script src="gsap.min.js"></script>
   <script>
     // ============================================
-    // CONFIGURATION
-    // ============================================
-    const CONFIG = {
-      fps: 30,
-      duration: 300, // 5 minutes = 300 seconds (we'll compress for demo)
-      // Actual beat timestamps (seconds) for 5-min documentary pace
-      beats: [
-        { time: 0,     label: "Cold Open",       narration: "Most AI demos work in a clean lab. Your company is not a clean lab." },
-        { time: 12,    label: "The Reality",     narration: "Forward Deployed Engineering is the discipline of making AI work in your environment — legacy code, messy data, restricted networks, skeptical stakeholders." },
-        { time: 35,    label: "The 10 Modules",  narration: "This course teaches you the 10 modules of an FDE engagement: Discovery, Scoping, Integration, Prototyping, Evaluation, Security, Rollout." },
-        { time: 60,    label: "No Code Required",narration: "No coding required. You'll learn the frameworks, the questions to ask, the templates to fill, the videos to show your boss." },
-        { time: 85,    label: "Your Deliverable",narration: "Module by module, you'll build your first FDE Engagement Plan — a real deliverable you can hand to a client." },
-        { time: 110,   label: "Module 1",        narration: "Module 1: Discovery. Finding the real problem, not the stated one." },
-        { time: 135,   label: "Module 2",        narration: "Module 2: Scoping. Turning ambiguity into a testable plan with decision gates." },
-        { time: 160,   label: "Module 3",        narration: "Module 3: Data Reality. Why your spreadsheets lie and how to fix them." },
-        { time: 185,   label: "Module 4",        narration: "Module 4: Integration. Connecting AI to the tools people actually use." },
-        { time: 210,   label: "Module 5",        narration: "Module 5: Prototyping. Building a working demo in 2 hours — no code." },
-        { time: 235,   label: "Module 6",        narration: "Module 6: Evaluation. How to know if it actually works — golden datasets and rubrics." },
-        { time: 260,   label: "Module 7",        narration: "Module 7: Security & Compliance. The boring stuff that kills projects." },
-        { time: 285,   label: "Module 8",        narration: "Module 8: Rollout. From pilot to adoption — change management that sticks." },
-        { time: 300,   label: "End",             narration: "" }
-      ],
-      modules: [
-        { num: "01", title: "Discovery\n& Problem Framing" },
-        { num: "02", title: "Technical\nScoping" },
-        { num: "03", title: "Data Reality\n& Integration" },
-        { num: "04", title: "Rapid\nPrototyping" },
-        { num: "05", title: "Evaluation\n& Proof" },
-        { num: "06", title: "Production\nPath" },
-        { num: "07", title: "Security\n& Compliance" },
-        { num: "08", title: "Rollout\n& Adoption" },
-        { num: "09", title: "Handover\n& Defense" },
-        { num: "10", title: "Capstone\nEngagement Plan" }
-      ]
-    };
-
-    // ============================================
-    // STATE
-    // ============================================
-    let currentTime = 0;
-    let currentBeat = 0;
-    let isPlaying = false;
-    let animationId = null;
-    const startTime = performance.now();
-
-    // ============================================
-    // DOM ELEMENTS
-    // ============================================
-    const stage = document.getElementById('stage');
-    const headline = document.getElementById('headline');
-    const subline = document.getElementById('subline');
-    const moduleGrid = document.getElementById('moduleGrid');
-    const badge = document.getElementById('badge');
-    const signature = document.getElementById('signature');
-    const lowerThird = document.getElementById('lowerThird');
-    const lowerThirdLine = document.getElementById('lowerThirdLine');
-    const chapterIndicator = document.getElementById('chapterIndicator');
-    const progressBar = document.getElementById('progressBar');
-    const debugBar = document.getElementById('debugBar');
-    const debugTime = document.getElementById('debugTime');
-    const debugBeat = document.getElementById('debugBeat');
-    const bgMesh = document.getElementById('bgMesh');
-    const orb1 = document.getElementById('orb1');
-    const orb2 = document.getElementById('orb2');
-    const orb3 = document.getElementById('orb3');
-
-    // ============================================
-    // INITIALIZE MODULE GRID
-    // ============================================
-    CONFIG.modules.forEach((m, i) => {
-      const card = document.createElement('div');
-      card.className = 'module-card';
-      card.style.opacity = '0';
-      card.style.transform = 'translateY(30px)';
-      card.innerHTML = `
-        <div class="module-num">${m.num}</div>
-        <div class="module-title">${m.title}</div>
-      `;
-      moduleGrid.appendChild(card);
-    });
-
-    // ============================================
-    // BACKGROUND ANIMATION (never sits still)
-    // ============================================
-    gsap.to(orb1, {
-      attr: { cx: '1200', cy: '300', r: '500' },
-      duration: 20,
-      ease: 'none',
-      repeat: -1,
-      yoyo: true
-    });
-    gsap.to(orb2, {
-      attr: { cx: '600', cy: '700', r: '400' },
-      duration: 17,
-      ease: 'none',
-      repeat: -1,
-      yoyo: true
-    });
-    gsap.to(orb3, {
-      attr: { cx: '1500', cy: '800', r: '350' },
-      duration: 23,
-      ease: 'none',
-      repeat: -1,
-      yoyo: true
-    });
-    // Subtle breathing drift on entire bg
-    gsap.to(bgMesh, {
-      scale: 1.02,
-      rotation: 0.5,
-      duration: 30,
-      ease: 'sine.inOut',
-      repeat: -1,
-      yoyo: true,
-      transformOrigin: 'center center'
-    });
-
-    // ============================================
-    // PARTICLE SYSTEM (ambient life)
-    // ============================================
-    function spawnParticle(x, y, isGold = false) {
-      const p = document.createElement('div');
-      p.className = `particle ${isGold ? 'gold-particle' : ''}`;
-      p.style.left = x + 'px';
-      p.style.top = y + 'px';
-      stage.appendChild(p);
-      const size = gsap.utils.random(2, 6);
-      gsap.set(p, { width: size, height: size });
-      gsap.to(p, {
-        opacity: gsap.utils.random(0.3, 0.8),
-        duration: 0.3,
-        ease: 'power2.out',
-        onComplete: () => {
-          gsap.to(p, {
-            x: gsap.utils.random(-200, 200),
-            y: gsap.utils.random(-200, 200),
-            opacity: 0,
-            scale: 0,
-            duration: gsap.utils.random(2, 4),
-            ease: 'power1.out',
-            onComplete: () => p.remove()
-          });
-        }
-      });
-    }
-    // Ambient spawn
-    setInterval(() => {
-      if (isPlaying) {
-        spawnParticle(gsap.utils.random(100, 1820), gsap.utils.random(100, 980), Math.random() < 0.15);
-      }
-    }, 300);
-
-    // ============================================
-    // MAIN TIMELINE (bang-motion: one continuous world)
-    // ============================================
-    const masterTL = gsap.timeline({
-      paused: true,
-      onUpdate: updateDebug,
-      onComplete: () => { isPlaying = false; }
-    });
-
-    // Helper: spring easing (claude-remotion rule #1: never linear)
-    const spring = 'power2.out';
-    const springIn = 'power2.in';
-
-    // Beat 0: Cold Open - "Clean lab shatters"
-    masterTL
-      .from(headline, {
-        duration: 2.5,
-        ease: 'power3.out',
-        y: 60,
-        opacity: 0,
-        skewY: 3
-      }, 0)
-      .from(badge, {
-        duration: 1.5,
-        ease: 'power3.out',
-        y: -40,
-        opacity: 0
-      }, 0.5)
-      .from(subline, {
-        duration: 2,
-        ease: 'power2.out',
-        y: 40,
-        opacity: 0
-      }, 1.2)
-      // Shatter effect on "clean lab" words
-      .call(() => {
-        // Trigger particle burst on "lab"
-        for (let i = 0; i < 30; i++) {
-          setTimeout(() => spawnParticle(960, 400, true), i * 30);
-        }
-      }, null, 3.5);
-
-    // Beat 1: The Reality - "Messy reality builds up"
-    masterTL
-      .to(headline, {
-        duration: 1.5,
-        ease: 'power2.inOut',
-        innerHTML: 'Forward Deployed Engineering is the discipline of making AI work in <span class="accent-text">your</span> environment — legacy code, messy data, restricted networks, skeptical stakeholders.',
-        onStart: () => updateChapter('CHAPTER 2 OF 5 • THE REALITY')
-      }, 12)
-      .from('.graphics-element', { opacity: 0 }, 12); // placeholder for graphics
-
-    // Beat 2: The 10 Modules - "Cards deal into place"
-    masterTL
-      .to(headline, {
-        duration: 1,
-        ease: 'power2.inOut',
-        innerHTML: 'This course teaches you the <span class="gold-text">10 modules</span> of an FDE engagement:',
-        onStart: () => updateChapter('CHAPTER 3 OF 5 • THE 10 MODULES')
-      }, 35)
-      .call(() => {
-        // Animate module cards in (card-stack shot from video-shotcraft)
-        gsap.from('.module-card', {
-          opacity: 0,
-          y: 50,
-          rotationX: -15,
-          duration: 0.8,
-          ease: 'back.out(1.5)',
-          stagger: 0.08,
-          onStart: () => {
-            // Particle burst on each card
-            document.querySelectorAll('.module-card').forEach((card, i) => {
-              setTimeout(() => {
-                const rect = card.getBoundingClientRect();
-                for (let p = 0; p < 8; p++) spawnParticle(rect.left + rect.width/2, rect.top + rect.height/2);
-              }, i * 80);
-            });
-          }
-        });
-      }, 36)
-      .to(subline, {
-        duration: 1,
-        ease: 'power2.out',
-        innerHTML: 'Discovery · Scoping · Data · Integration · Prototyping · Evaluation · Production · Security · Rollout · Capstone',
-        onStart: () => {}
-      }, 37);
-
-    // Beat 3: No Code Required
-    masterTL
-      .to(headline, {
-        duration: 1.5,
-        ease: 'power2.inOut',
-        innerHTML: 'No coding required. You\'ll learn the <span class="accent-text">frameworks</span>, the <span class="accent-text">questions</span>, the <span class="accent-text">templates</span>, the <span class="accent-text">videos</span> to show your boss.',
-        onStart: () => updateChapter('CHAPTER 4 OF 5 • NO CODE REQUIRED')
-      }, 60)
-      .to('.module-card', {
-        opacity: 0.3,
-        duration: 1
-      }, 60);
-
-    // Beat 4: Your Deliverable - "Plan assembles, signature moment"
-    masterTL
-      .to(headline, {
-        duration: 1.5,
-        ease: 'power2.inOut',
-        innerHTML: 'Module by module, you\'ll build your first <span class="gold-text">FDE Engagement Plan</span> — a real deliverable you can hand to a client.',
-        onStart: () => updateChapter('CHAPTER 5 OF 5 • YOUR DELIVERABLE')
-      }, 85)
-      .from(signature, {
-        duration: 2,
-        ease: 'elastic.out(1, 0.5)',
-        scale: 0,
-        opacity: 0,
-        onStart: () => {
-          // Major particle burst - signature moment
-          for (let i = 0; i < 50; i++) {
-            setTimeout(() => spawnParticle(960, 540, true), i * 20);
-          }
-        }
-      }, 86);
-
-    // Beat 5-12: Module quick previews (compressed for demo)
-    CONFIG.beats.slice(5, 13).forEach((beat, i) => {
-      const t = beat.time;
-      masterTL
-        .to(headline, {
-          duration: 0.8,
-          ease: 'power2.inOut',
-          innerHTML: `Module ${i+1}: <span class="accent-text">${beat.label}</span>`,
-          onStart: () => updateChapter(`MODULE ${i+1} • ${beat.label.toUpperCase()}`)
-        }, t)
-        .to(signature, { opacity: 0, duration: 0.3 }, t)
-        .call(() => {
-          // Highlight corresponding module card
-          const cards = document.querySelectorAll('.module-card');
-          cards.forEach((c, ci) => {
-            gsap.to(c, {
-              opacity: ci === i ? 1 : 0.3,
-              borderColor: ci === i ? '#00F5FF' : 'rgba(255,255,255,0.08)',
-              scale: ci === i ? 1.05 : 1,
-              duration: 0.5,
-              ease: 'power2.out'
-            });
-          });
-        }, t);
-    });
-
-    // Final hold
-    masterTL.to({}, { duration: 5 }, 300);
-
-    // ============================================
-    // HELPER FUNCTIONS
-    // ============================================
-    function updateChapter(text) {
-      gsap.to(lowerThirdLine, { scaleX: 0, duration: 0.2, ease: 'power2.in', onComplete: () => {
-        chapterIndicator.textContent = text;
-        gsap.to(lowerThirdLine, { scaleX: 1, duration: 0.4, ease: 'power2.out' });
-      }});
-    }
-
-    function updateDebug() {
-      currentTime = masterTL.time();
-      const progress = currentTime / masterTL.duration();
-      progressBar.style.transform = `scaleX(${progress})`;
-      debugTime.textContent = currentTime.toFixed(2);
-      
-      // Find current beat
-      let beatIdx = 0;
-      for (let i = CONFIG.beats.length - 1; i >= 0; i--) {
-        if (currentTime >= CONFIG.beats[i].time) { beatIdx = i; break; }
-      }
-      debugBeat.textContent = beatIdx;
-      if (beatIdx !== currentBeat) {
-        currentBeat = beatIdx;
-        // Could trigger beat-sync SFX here
-      }
-    }
-
-    // ============================================
-    // PLAYBACK CONTROL
-    // ============================================
-    function play() {
-      if (!isPlaying) {
-        isPlaying = true;
-        masterTL.play();
-      }
-    }
-    function pause() {
-      isPlaying = false;
-      masterTL.pause();
-    }
-    function seek(time) {
-      masterTL.seek(time);
-      updateDebug();
-    }
-    function restart() {
-      masterTL.restart();
-      play();
-    }
-
-    // Keyboard controls
-    document.addEventListener('keydown', (e) => {
-      if (e.code === 'Space') { e.preventDefault(); isPlaying ? pause() : play(); }
-      if (e.code === 'KeyR') { restart(); }
-      if (e.code === 'KeyD') { debugBar.classList.toggle('visible'); }
-      if (e.code === 'ArrowLeft') { seek(Math.max(0, currentTime - 5)); }
-      if (e.code === 'ArrowRight') { seek(Math.min(masterTL.duration(), currentTime + 5)); }
-      if (e.code === 'Digit0') { seek(0); }
-      if (e.code === 'Digit1') { seek(12); }
-      if (e.code === 'Digit2') { seek(35); }
-      if (e.code === 'Digit3') { seek(60); }
-      if (e.code === 'Digit4') { seek(85); }
-    });
-
-    // Auto-play on load (bang-motion: autoplay + loop)
-    window.addEventListener('load', () => {
-      // Brief delay for fonts
-      setTimeout(() => {
-        play();
-        // Loop
-        masterTL.eventCallback('onComplete', () => {
-          setTimeout(() => restart(), 2000);
-        });
-      }, 500);
-    });
-
-    // ============================================
-    // EXPORT HELPER (for Puppeteer)
+    // EARLY COMPOSITION CONTROLLER (exposed immediately)
     // ============================================
     window.__FDE_COMPOSITION__ = {
-      duration: masterTL.duration(),
-      fps: CONFIG.fps,
-      totalFrames: Math.ceil(masterTL.duration() * CONFIG.fps),
-      seek,
-      play,
-      pause,
-      getProgress: () => masterTL.progress(),
-      getCurrentTime: () => currentTime
+      ready: false,
+      duration: 0,
+      fps: 30,
+      totalFrames: 0,
+      seek: () => {},
+      play: () => {},
+      pause: () => {},
+      getProgress: () => 0,
+      getCurrentTime: () => 0,
+      error: null
     };
+
+    window.__FDE_ERRORS__ = [];
+
+    try {
+      // ============================================
+      // CONFIGURATION
+      // ============================================
+      const CONFIG = {
+        fps: 30,
+        duration: 300,
+        beats: [
+          { time: 0, label: "Cold Open", narration: "Most AI demos work in a clean lab. Your company is not a clean lab." },
+          { time: 12, label: "The Reality", narration: "Forward Deployed Engineering is the discipline of making AI work in your environment — legacy code, messy data, restricted networks, skeptical stakeholders." },
+          { time: 35, label: "The 10 Modules", narration: "This course teaches you the 10 modules of an FDE engagement: Discovery, Scoping, Integration, Prototyping, Evaluation, Security, Rollout, Handover, Adoption, and Capstone." },
+          { time: 60, label: "No Code Required", narration: "No coding required. You'll learn the frameworks, the questions to ask, the templates to fill, the videos to show your boss." },
+          { time: 85, label: "Your Deliverable", narration: "Module by module, you'll build your first FDE Engagement Plan — a real deliverable you can hand to a client." },
+          { time: 110, label: "Module 1", narration: "Module 1: Discovery. Finding the real problem, not the stated one." },
+          { time: 135, label: "Module 2", narration: "Module 2: Scoping. Turning ambiguity into a testable plan with decision gates." },
+          { time: 160, label: "Module 3", narration: "Module 3: Data Reality. Why your spreadsheets lie and how to fix them." },
+          { time: 185, label: "Module 4", narration: "Module 4: Integration. Connecting AI to the tools people actually use." },
+          { time: 210, label: "Module 5", narration: "Module 5: Prototyping. Building a working demo in 2 hours — no code." },
+          { time: 235, label: "Module 6", narration: "Module 6: Evaluation. How to know if it actually works — golden datasets and rubrics." },
+          { time: 260, label: "Module 7", narration: "Module 7: Security & Compliance. The boring stuff that kills projects." },
+          { time: 285, label: "Module 8", narration: "Module 8: Rollout. From pilot to adoption — change management that sticks." },
+          { time: 300, label: "End", narration: "" }
+        ],
+        modules: [
+          { num: "01", title: "Discovery
+& Problem Framing" },
+          { num: "02", title: "Technical
+Scoping" },
+          { num: "03", title: "Data Reality
+& Integration" },
+          { num: "04", title: "Rapid
+Prototyping" },
+          { num: "05", title: "Evaluation
+& Proof" },
+          { num: "06", title: "Production
+Path" },
+          { num: "07", title: "Security
+& Compliance" },
+          { num: "08", title: "Rollout
+& Adoption" },
+          { num: "09", title: "Handover
+& Defense" },
+          { num: "10", title: "Capstone
+Engagement Plan" }
+        ]
+      };
+
+      let currentTime = 0;
+      let currentBeat = 0;
+      let isPlaying = false;
+      let animationId = null;
+      const startTime = performance.now();
+
+      const stage = document.getElementById('stage');
+      const headline = document.getElementById('headline');
+      const subline = document.getElementById('subline');
+      const moduleGrid = document.getElementById('moduleGrid');
+      const badge = document.getElementById('badge');
+      const signature = document.getElementById('signature');
+      const lowerThird = document.getElementById('lowerThird');
+      const lowerThirdLine = document.getElementById('lowerThirdLine');
+      const chapterIndicator = document.getElementById('chapterIndicator');
+      const progressBar = document.getElementById('progressBar');
+      const debugBar = document.getElementById('debugBar');
+      const debugTime = document.getElementById('debugTime');
+      const debugBeat = document.getElementById('debugBeat');
+      const bgMesh = document.getElementById('bgMesh');
+      const orb1 = document.getElementById('orb1');
+      const orb2 = document.getElementById('orb2');
+      const orb3 = document.getElementById('orb3');
+
+      CONFIG.modules.forEach((m) => {
+        const card = document.createElement('div');
+        card.className = 'module-card';
+        card.style.opacity = '0';
+        card.style.transform = 'translateY(30px)';
+        card.innerHTML = `
+          <div class="module-num">${m.num}</div>
+          <div class="module-title">${m.title}</div>
+        `;
+        moduleGrid.appendChild(card);
+      });
+
+      gsap.to(orb1, {
+        attr: { cx: '1200', cy: '300', r: '500' },
+        duration: 20,
+        ease: 'none',
+        repeat: -1,
+        yoyo: true
+      });
+      gsap.to(orb2, {
+        attr: { cx: '600', cy: '700', r: '400' },
+        duration: 17,
+        ease: 'none',
+        repeat: -1,
+        yoyo: true
+      });
+      gsap.to(orb3, {
+        attr: { cx: '1500', cy: '800', r: '350' },
+        duration: 23,
+        ease: 'none',
+        repeat: -1,
+        yoyo: true
+      });
+      gsap.to(bgMesh, {
+        scale: 1.02,
+        rotation: 0.5,
+        duration: 30,
+        ease: 'sine.inOut',
+        repeat: -1,
+        yoyo: true,
+        transformOrigin: 'center center'
+      });
+
+      function spawnParticle(x, y, isGold = false) {
+        const p = document.createElement('div');
+        p.className = `particle ${isGold ? 'gold-particle' : ''}`;
+        p.style.left = x + 'px';
+        p.style.top = y + 'px';
+        stage.appendChild(p);
+        const size = gsap.utils.random(2, 6);
+        gsap.set(p, { width: size, height: size });
+        gsap.to(p, {
+          opacity: gsap.utils.random(0.3, 0.8),
+          duration: 0.3,
+          ease: 'power2.out',
+          onComplete: () => {
+            gsap.to(p, {
+              x: gsap.utils.random(-200, 200),
+              y: gsap.utils.random(-200, 200),
+              opacity: 0,
+              scale: 0,
+              duration: gsap.utils.random(2, 4),
+              ease: 'power1.out',
+              onComplete: () => p.remove()
+            });
+          }
+        });
+      }
+
+      setInterval(() => {
+        if (isPlaying) {
+          spawnParticle(gsap.utils.random(100, 1820), gsap.utils.random(100, 980), Math.random() < 0.15);
+        }
+      }, 300);
+
+      const masterTL = gsap.timeline({
+        paused: true,
+        onUpdate: updateDebug,
+        onComplete: () => {
+          isPlaying = false;
+        }
+      });
+
+      masterTL
+        .from(headline, { duration: 2.5, ease: 'power3.out', y: 60, opacity: 0, skewY: 3 }, 0)
+        .from(badge, { duration: 1.5, ease: 'power3.out', y: -40, opacity: 0 }, 0.5)
+        .from(subline, { duration: 2, ease: 'power2.out', y: 40, opacity: 0 }, 1.2)
+        .call(() => {
+          for (let i = 0; i < 30; i++) {
+            setTimeout(() => spawnParticle(960, 400, true), i * 30);
+          }
+        }, null, 3.5);
+
+      masterTL
+        .to(headline, {
+          duration: 1.5,
+          ease: 'power2.inOut',
+          innerHTML: 'Forward Deployed Engineering is the discipline of making AI work in <span class="accent-text">your</span> environment — legacy code, messy data, restricted networks, skeptical stakeholders.',
+          onStart: () => updateChapter('CHAPTER 2 OF 5 • THE REALITY')
+        }, 12);
+
+      const graphicsTarget = document.querySelector('.graphics-element');
+      if (graphicsTarget) {
+        masterTL.from(graphicsTarget, { opacity: 0 }, 12);
+      }
+
+      masterTL
+        .to(headline, {
+          duration: 1,
+          ease: 'power2.inOut',
+          innerHTML: 'This course teaches you the <span class="gold-text">10 modules</span> of an FDE engagement:',
+          onStart: () => updateChapter('CHAPTER 3 OF 5 • THE 10 MODULES')
+        }, 35)
+        .call(() => {
+          gsap.from('.module-card', {
+            opacity: 0,
+            y: 50,
+            rotationX: -15,
+            duration: 0.8,
+            ease: 'back.out(1.5)',
+            stagger: 0.08,
+            onStart: () => {
+              document.querySelectorAll('.module-card').forEach((card, i) => {
+                setTimeout(() => {
+                  const rect = card.getBoundingClientRect();
+                  for (let p = 0; p < 8; p++) spawnParticle(rect.left + rect.width/2, rect.top + rect.height/2);
+                }, i * 80);
+              });
+            }
+          });
+        }, 36)
+        .to(subline, {
+          duration: 1,
+          ease: 'power2.out',
+          innerHTML: 'Discovery · Scoping · Data · Integration · Prototyping · Evaluation · Production · Security · Rollout · Capstone',
+        }, 37);
+
+      masterTL.to({}, { duration: 5 }, 300);
+
+      function updateChapter(text) {
+        gsap.to(lowerThirdLine, { scaleX: 0, duration: 0.2, ease: 'power2.in', onComplete: () => {
+          chapterIndicator.textContent = text;
+          gsap.to(lowerThirdLine, { scaleX: 1, duration: 0.4, ease: 'power2.out' });
+        }});
+      }
+
+      function updateDebug() {
+        currentTime = masterTL.time();
+        const progress = currentTime / masterTL.duration();
+        progressBar.style.transform = `scaleX(${progress})`;
+        debugTime.textContent = currentTime.toFixed(2);
+
+        let beatIdx = 0;
+        for (let i = CONFIG.beats.length - 1; i >= 0; i--) {
+          if (currentTime >= CONFIG.beats[i].time) { beatIdx = i; break; }
+        }
+        debugBeat.textContent = beatIdx;
+        if (beatIdx !== currentBeat) {
+          currentBeat = beatIdx;
+        }
+      }
+
+      function play() {
+        if (!isPlaying) {
+          isPlaying = true;
+          masterTL.play();
+        }
+      }
+
+      function pause() {
+        isPlaying = false;
+        masterTL.pause();
+      }
+
+      function seek(time) {
+        masterTL.seek(time);
+        updateDebug();
+      }
+
+      function restart() {
+        masterTL.restart();
+        play();
+      }
+
+      document.addEventListener('keydown', (e) => {
+        if (e.code === 'Space') { e.preventDefault(); isPlaying ? pause() : play(); }
+        if (e.code === 'KeyR') { restart(); }
+        if (e.code === 'KeyD') { debugBar.classList.toggle('visible'); }
+        if (e.code === 'ArrowLeft') { seek(Math.max(0, currentTime - 5)); }
+        if (e.code === 'ArrowRight') { seek(Math.min(masterTL.duration(), currentTime + 5)); }
+        if (e.code === 'Digit0') { seek(0); }
+        if (e.code === 'Digit1') { seek(12); }
+        if (e.code === 'Digit2') { seek(35); }
+        if (e.code === 'Digit3') { seek(60); }
+        if (e.code === 'Digit4') { seek(85); }
+      });
+
+      window.addEventListener('load', () => {
+        setTimeout(() => {
+          play();
+          masterTL.eventCallback('onComplete', () => {
+            setTimeout(() => restart(), 2000);
+          });
+        }, 500);
+      });
+
+      window.__FDE_COMPOSITION__ = {
+        duration: masterTL.duration(),
+        fps: CONFIG.fps,
+        totalFrames: Math.ceil(masterTL.duration() * CONFIG.fps),
+        ready: true,
+        error: null,
+        seek,
+        play,
+        pause,
+        getProgress: () => masterTL.progress(),
+        getCurrentTime: () => currentTime
+      };
+
+      window.__FDE_ERRORS__ = [];
+    } catch (error) {
+      console.error('FDE init failed:', error);
+      window.__FDE_ERRORS__ = [String(error)];
+      window.__FDE_COMPOSITION__ = {
+        duration: 0,
+        ready: false,
+        error: String(error),
+        seek: () => {},
+        play: () => {},
+        pause: () => {},
+        getProgress: () => 0,
+        getCurrentTime: () => 0
+      };
+    }
   </script>
 </body>
 </html>

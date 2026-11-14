@@ -20,6 +20,14 @@ on:
         default: 'high'
         type: choice
         options: ['draft', 'high']
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/render.yml'
+      - 'index.html'
+      - 'export-frames.mjs'
+      - 'package.json'
+      - 'package-lock.json'
 
 permissions:
   contents: read
@@ -27,13 +35,13 @@ permissions:
 
 jobs:
   render:
-    name: Render MP4 (${{ github.event.inputs.fps }}fps, ${{ github.event.inputs.quality }})
+    name: Render MP4 (${{ github.event.inputs.fps || '30' }}fps, ${{ github.event.inputs.quality || 'high' }})
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
-      FPS: ${{ github.event.inputs.fps }}
-      DURATION: ${{ github.event.inputs.duration }}
-      QUALITY: ${{ github.event.inputs.quality }}
+      FPS: ${{ github.event.inputs.fps || '30' }}
+      DURATION: ${{ github.event.inputs.duration || '305' }}
+      QUALITY: ${{ github.event.inputs.quality || 'high' }}
       WIDTH: 1920
       HEIGHT: 1080
 
@@ -51,22 +59,13 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2t64
-          # Install Chrome for puppeteer (modern keyring method)
           sudo install -d -m 0755 /etc/apt/keyrings
           wget -qO- https://dl-ssl.google.com/linux/linux_signing_key.pub | gpg --dearmor | sudo tee /etc/apt/keyrings/google-chrome.gpg >/dev/null
           echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/google-chrome.gpg] https://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
           sudo apt-get update
           sudo apt-get install -y google-chrome-stable
 
-      - name: Cache node_modules
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-
-
-      - name: Install puppeteer
+      - name: Install dependencies
         run: npm ci
         env:
           PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: 'true'
@@ -77,100 +76,66 @@ jobs:
 
       - name: Verify composition loads
         run: |
-          node -e "
-            const puppeteer = require('puppeteer');
-
+          node --input-type=commonjs -e '
+            const puppeteer = require("puppeteer");
             (async () => {
               const browser = await puppeteer.launch({
-                headless: 'new',
-                args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-                executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable'
+                headless: "new",
+                args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+                executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/google-chrome-stable"
               });
+              try {
+                const page = await browser.newPage();
+                const pageErrors = [];
+                page.on("pageerror", err => pageErrors.push(err.message));
+                page.on("console", msg => console.log("BROWSER:", msg.type(), msg.text()));
 
-              const page = await browser.newPage();
+                await page.goto("file://${{ github.workspace }}/index.html", { waitUntil: "load", timeout: 120000 });
 
-              page.on('pageerror', err => console.error('PAGEERROR:', err.message));
-              page.on('console', msg => console.log('BROWSER:', msg.type(), msg.text()));
+                await page.waitForFunction(() => {
+                  const comp = window.__FDE_COMPOSITION__;
+                  return comp && Number.isFinite(comp.duration) && typeof comp.seek === "function";
+                }, { timeout: 30000 });
 
-              await page.goto('file://${{ github.workspace }}/index.html', { waitUntil: 'load', timeout: 120000 });
+                const comp = await page.evaluate(() => window.__FDE_COMPOSITION__);
+                if (!comp || !Number.isFinite(comp.duration) || typeof comp.seek !== "function") {
+                  throw new Error("Composition controller is missing or invalid");
+                }
 
-              await page.waitForFunction(() => !!window.__FDE_COMPOSITION__?.ready, { timeout: 30000 });
+                if (pageErrors.length) {
+                  throw new Error("Browser page errors: " + pageErrors.join("; "));
+                }
 
-              const comp = await page.evaluate(() => window.__FDE_COMPOSITION__);
-              if (!comp || !comp.ready) throw new Error('Composition not ready: ' + (comp?.error || 'unknown'));
-              console.log('✅ Composition verified:', comp.duration, 'seconds, ready:', comp.ready);
+                console.log("Composition verified:", comp.duration, "seconds");
+              } finally {
+                await browser.close();
+              }
+            })().catch(err => {
+              console.error(err);
+              process.exit(1);
+            });
+          '
+        env:
+          PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: 'true'
+          PUPPETEER_EXECUTABLE_PATH: '/usr/bin/google-chrome-stable'
 
-              // Also check for page errors
-              const errors = await page.evaluate(() => window.__FDE_ERRORS__);
-              if (errors.length) console.error('⚠️ Page errors:', errors);
-
-              await browser.close();
-            })();
-          "
-
-      - name: Capture frames
-        id: capture
-        run: |
-          node export-frames.mjs
+      - name: Capture frames and encode MP4
+        run: node export-frames.mjs
+        env:
+          PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: 'true'
+          PUPPETEER_EXECUTABLE_PATH: '/usr/bin/google-chrome-stable'
 
       - name: Upload MP4 artifact
         uses: actions/upload-artifact@v4
         with:
-          name: fde-course-intro-${{ github.event.inputs.fps }}fps-${{ github.event.inputs.quality }}
+          name: fde-course-intro-${{ github.event.inputs.fps || '30' }}fps-${{ github.event.inputs.quality || 'high' }}
           path: output/fde-course-intro.mp4
           retention-days: 7
 
       - name: Summary
         run: |
-          echo "## Render Complete" >> $GITHUB_STEP_SUMMARY
-          echo "- **FPS**: ${{ github.event.inputs.fps }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Duration**: ${{ github.event.inputs.duration }}s" >> $GITHUB_STEP_SUMMARY
-          echo "- **Quality**: ${{ github.event.inputs.quality }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Resolution**: 1920x1080" >> $GITHUB_STEP_SUMMARY
-          echo "- **Artifact**: [Download MP4](#artifacts)" >> $GITHUB_STEP_SUMMARY
-
-  # Optional: Deploy to GitHub Pages for preview
-  deploy-preview:
-    name: Deploy Preview to Pages
-    needs: render
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
-    steps:
-      - name: Download artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: fde-course-intro-${{ github.event.inputs.fps }}fps-${{ github.event.inputs.quality }}
-          path: public
-
-      - name: Create index.html for preview
-        run: |
-          cat > public/index.html << 'EOF'
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <title>FDE Course Intro Preview</title>
-            <style>
-              body { margin: 0; background: #0A0A0F; display: flex; align-items: center; justify-content: center; height: 100vh; font-family: system-ui; color: #EAEAEA; }
-              video { max-width: 100%; max-height: 90vh; box-shadow: 0 0 40px rgba(0,245,255,0.2); border-radius: 8px; }
-            </style>
-          </head>
-          <body>
-            <video controls autoplay loop playsinline src="fde-course-intro.mp4"></video>
-          </body>
-          </html>
-          EOF
-
-      - name: Setup Pages
-        uses: actions/configure-pages@v4
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: public
-
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          echo "## Render Complete" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **FPS**: $FPS" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Duration**: ${DURATION}s" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Quality**: $QUALITY" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Resolution**: 1920x1080" >> "$GITHUB_STEP_SUMMARY"
