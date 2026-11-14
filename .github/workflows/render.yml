@@ -1,0 +1,149 @@
+name: Render FDE Course Intro
+
+on:
+  workflow_dispatch:
+    inputs:
+      fps:
+        description: 'Frames per second'
+        required: false
+        default: '30'
+        type: choice
+        options: ['15', '30']
+      duration:
+        description: 'Duration in seconds'
+        required: false
+        default: '305'
+        type: string
+      quality:
+        description: 'Render quality preset'
+        required: false
+        default: 'high'
+        type: choice
+        options: ['draft', 'high']
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  render:
+    name: Render MP4 (${{ github.event.inputs.fps }}fps, ${{ github.event.inputs.quality }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      FPS: ${{ github.event.inputs.fps }}
+      DURATION: ${{ github.event.inputs.duration }}
+      QUALITY: ${{ github.event.inputs.quality }}
+      WIDTH: 1920
+      HEIGHT: 1080
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      - name: Install puppeteer
+        run: npm ci
+
+      - name: Verify composition loads
+        run: |
+          node -e "
+            const puppeteer = require('puppeteer');
+            (async () => {
+              const browser = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox'] });
+              const page = await browser.newPage();
+              await page.goto('file://${{ github.workspace }}/index.html', { waitUntil: 'networkidle0' });
+              await page.evaluateHandle('document.fonts.ready');
+              const comp = await page.evaluate(() => window.__FDE_COMPOSITION__);
+              if (!comp) throw new Error('Composition controller not found');
+              console.log('✅ Composition verified:', comp.duration, 'seconds');
+              await browser.close();
+            })();
+          "
+
+      - name: Capture frames
+        id: capture
+        run: |
+          node export-frames.mjs
+        env:
+          TOTAL_FRAMES: ${{ fromJson(format('{{0 * 1}}', github.event.inputs.fps * github.event.inputs.duration)) }}
+
+      - name: Upload MP4 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fde-course-intro-${{ github.event.inputs.fps }}fps-${{ github.event.inputs.quality }}
+          path: output/fde-course-intro.mp4
+          retention-days: 7
+
+      - name: Summary
+        run: |
+          echo "## Render Complete" >> $GITHUB_STEP_SUMMARY
+          echo "- **FPS**: ${{ github.event.inputs.fps }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Duration**: ${{ github.event.inputs.duration }}s" >> $GITHUB_STEP_SUMMARY
+          echo "- **Quality**: ${{ github.event.inputs.quality }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Resolution**: 1920x1080" >> $GITHUB_STEP_SUMMARY
+          echo "- **Artifact**: [Download MP4](#artifacts)" >> $GITHUB_STEP_SUMMARY
+
+  # Optional: Deploy to GitHub Pages for preview
+  deploy-preview:
+    name: Deploy Preview to Pages
+    needs: render
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: fde-course-intro-${{ github.event.inputs.fps }}fps-${{ github.event.inputs.quality }}
+          path: public
+
+      - name: Create index.html for preview
+        run: |
+          cat > public/index.html << 'EOF'
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>FDE Course Intro Preview</title>
+            <style>
+              body { margin: 0; background: #0A0A0F; display: flex; align-items: center; justify-content: center; height: 100vh; font-family: system-ui; color: #EAEAEA; }
+              video { max-width: 100%; max-height: 90vh; box-shadow: 0 0 40px rgba(0,245,255,0.2); border-radius: 8px; }
+            </style>
+          </head>
+          <body>
+            <video controls autoplay loop playsinline src="fde-course-intro.mp4"></video>
+          </body>
+          </html>
+          EOF
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

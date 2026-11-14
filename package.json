@@ -1,0 +1,13 @@
+{
+  "name": "fde-intro-export",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Export FDE course intro bang-motion composition to MP4",
+  "scripts": {
+    "export": "node export-frames.mjs"
+  },
+  "dependencies": {
+    "puppeteer": "^22.0.0"
+  },
+  "engines": { "node": ">=18" }
+}
